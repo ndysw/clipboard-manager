@@ -22,7 +22,7 @@ if sys.platform == 'win32':
         pass
 
 class ClipboardManager:
-    def __init__(self, max_history=20):
+    def __init__(self, max_history=30):
         self.max_history = max_history
         self.clipboard_history = []
         self.last_clipboard = ""
@@ -78,20 +78,21 @@ class ClipboardManager:
 
                 current_clipboard = pyperclip.paste()
 
+                # 只要内容变化了（相对于上一次检测到的内容），就记录
+                # 即使这个内容以前复制过（在历史列表中存在），也作为新的记录插入到顶部
                 if current_clipboard and current_clipboard != self.last_clipboard:
-                    if current_clipboard not in self.clipboard_history:
-                        self.clipboard_history.insert(0, current_clipboard)
+                    self.clipboard_history.insert(0, current_clipboard)
 
-                        if len(self.clipboard_history) > self.max_history:
-                            self.clipboard_history = self.clipboard_history[:self.max_history]
+                    if len(self.clipboard_history) > self.max_history:
+                        self.clipboard_history = self.clipboard_history[:self.max_history]
 
-                        timestamp = datetime.now().strftime('%H:%M:%S')
-                        preview = current_clipboard[:50].replace('\n', ' ')
-                        if len(current_clipboard) > 50:
-                            preview += "..."
-                        print(f"[{timestamp}] 新增复制内容: {preview}")
+                    timestamp = datetime.now().strftime('%H:%M:%S')
+                    preview = current_clipboard[:50].replace('\n', ' ')
+                    if len(current_clipboard) > 50:
+                        preview += "..."
+                    print(f"[{timestamp}] 新增复制内容: {preview}")
 
-                        self.save_history()
+                    self.save_history()
 
                     self.last_clipboard = current_clipboard
 
@@ -144,8 +145,21 @@ class ClipboardManager:
                 print(f"✗ 没有前台窗口")
                 return False
 
-            # 获取当前焦点控件 - 这是核心判断依据
-            focus_hwnd = ctypes.windll.user32.GetFocus()
+            # 获取当前焦点控件 - 需要挂载到目标线程才能获取
+            foreground_thread_id = ctypes.windll.user32.GetWindowThreadProcessId(hwnd, None)
+            current_thread_id = ctypes.windll.kernel32.GetCurrentThreadId()
+            
+            focus_hwnd = None
+            if foreground_thread_id != current_thread_id:
+                try:
+                    # 连接到前台窗口的线程输入处理机制
+                    ctypes.windll.user32.AttachThreadInput(current_thread_id, foreground_thread_id, True)
+                    focus_hwnd = ctypes.windll.user32.GetFocus()
+                finally:
+                    # 无论如何都要断开连接
+                    ctypes.windll.user32.AttachThreadInput(current_thread_id, foreground_thread_id, False)
+            else:
+                focus_hwnd = ctypes.windll.user32.GetFocus()
 
             # 如果没有焦点控件，说明当前没有输入焦点，直接返回False
             if not focus_hwnd:
@@ -167,46 +181,53 @@ class ClipboardManager:
             print(f"🔍 窗口标题: {window_title}")
             print(f"🔍 焦点控件类名: {class_name_str}")
 
-            # 明确的可编辑控件类名列表
-            # 这些是Windows标准的输入控件，有明确的输入焦点
-            editable_classes = [
-                'edit',                 # 标准文本框（记事本、对话框输入框等）
-                'richedit',             # 富文本框
-                'richedit20a',          # 富文本框2.0 ANSI
-                'richedit20w',          # 富文本框2.0 Unicode
-                'richedit50w',          # 富文本框5.0
-                'consolewindowclass',   # 命令行窗口
-                'scintilla',            # Scintilla编辑器（Notepad++等）
-                'scieditor',            # SciTE编辑器
-                'txtwndclass',          # 某些文本编辑器
+            # === 黑名单过滤 ===
+            # 这些控件类名明确不是输入框，点击它们不应该弹出剪贴板菜单
+            non_editable_classes = [
+                'syslistview32',        # 桌面图标、资源管理器文件列表
+                'directuihwnd',         # 资源管理器背景区域、开始菜单部分区域
+                'progman',              # 桌面管理器
+                'workerw',              # 桌面背景
+                'shelldll_defview',     # 桌面视图
+                'button',               # 普通按钮
+                'static',               # 静态文本/标签
+                'toolbarwindow32',      # 工具栏
+                'mstasklistwclass',     # 任务栏程序列表
+                'shell_traywnd',        # 任务栏
+                'trayclockwclass',      # 任务栏时钟
+                'combobox',             # 下拉框(非编辑部分)
+                'listbox',              # 普通列表框
             ]
 
-            # 精确匹配可编辑控件类名
-            for editable_class in editable_classes:
-                if class_name_str == editable_class or class_name_str.startswith(editable_class):
-                    print(f"✓ 检测到可编辑控件: {class_name_str}")
+            for non_edit in non_editable_classes:
+                if class_name_str == non_edit or class_name_str.startswith(non_edit):
+                    print(f"✗ 检测到非编辑控件(黑名单): {class_name_str}")
+                    return False
+
+            # === 白名单过滤 ===
+            # 只有明确的可编辑控件类名才允许弹出菜单
+            editable_classes = [
+                'edit',                 # 标准编辑框
+                'richedit',             # 富文本编辑框
+                'richedit20',           # 富文本编辑框2.0
+                'richedit50',           # 富文本编辑框5.0
+                'textarea',             # 文本区域
+                'scintilla',            # Scintilla编辑器（Notepad++等）
+                'txtwndclass',          # 某些编辑器窗口类
+                'notepad',              # 记事本相关
+                'chrome_widgetwin_1',   # Chrome输入框（包括地址栏和网页输入框）
+                'chrome_renderwidgethosthwnd',  # Chrome渲染窗口
+                'mozilla',              # Firefox相关
+                'internetexplorer',     # IE相关
+            ]
+
+            for editable in editable_classes:
+                if class_name_str == editable or class_name_str.startswith(editable):
+                    print(f"✓ 检测到可编辑控件(白名单): {class_name_str} (Handle: {focus_hwnd})")
                     return True
 
-            # 对于Chrome/Edge等浏览器，需要检测是否在输入框中
-            # Chrome的输入框通常类名包含 'chrome' 且焦点在具体控件上
-            # 但Chrome的架构比较复杂，类名可能是Chrome_RenderWidgetHostHWND
-            if 'chrome' in class_name_str.lower():
-                # 尝试获取窗口样式，判断是否可编辑
-                # WS_CHILD = 0x40000000, ES_READONLY = 0x800
-                style = ctypes.windll.user32.GetWindowLongW(focus_hwnd, -16)  # GWL_STYLE
-
-                # 检查是否有EDIT样式
-                # 这是一个启发式方法，不一定100%准确
-                print(f"⚠️  Chrome窗口，焦点控件样式: {hex(style)}")
-
-                # 暂时保守处理：Chrome窗口需要用户反馈后再优化
-                # 可以根据实际测试结果调整这里的逻辑
-                return False
-
-            # 对于VSCode等Electron应用
-            # VSCode的编辑区域通常也有明确的焦点控件
-            # 如果焦点控件类名不在已知列表中，我们保守地返回False
-            print(f"✗ 焦点控件不是可编辑类型: {class_name_str}")
+            # 不在白名单中，不弹出菜单
+            print(f"✗ 焦点控件不在可编辑白名单中: {class_name_str}")
             return False
 
         except Exception as e:
@@ -217,17 +238,17 @@ class ClipboardManager:
         """鼠标点击事件处理"""
         # 单击右键检测
         if button == mouse.Button.right and pressed:
-            # 检测是否在可编辑输入框中
+            # 检测是否在可编辑输入框中（有明确的输入焦点）
             if self.is_in_editable_field():
-                # 检测是否有文字被选中
+                # 进一步检测：如果选中了文字，则不显示自定义菜单，允许系统菜单出现（用于复制/剪切等）
                 if self.has_text_selection():
-                    print("✓ 检测到选中文字，不弹出菜单（允许复制）")
-                    return  # 不弹菜单，让系统右键菜单正常显示
+                    print("✓ 检测到文字选中，不显示自定义菜单")
+                    return
 
-                print("✓ 检测到输入框，显示粘贴菜单")
+                print("✓ 检测到输入焦点，显示粘贴菜单")
                 self.show_menu()
             else:
-                print("✗ 当前不在输入框中")
+                print("✗ 没有输入焦点，不显示菜单")
 
     def show_menu(self):
         """显示剪贴板历史菜单"""
@@ -542,5 +563,5 @@ class ClipboardManager:
             self.quit_app()
 
 if __name__ == "__main__":
-    manager = ClipboardManager(max_history=20)
+    manager = ClipboardManager(max_history=30)
     manager.start()

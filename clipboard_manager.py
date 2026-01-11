@@ -143,67 +143,108 @@ class ClipboardManager:
             if not hwnd:
                 return False
 
+            # 获取主窗口类名
+            main_class_name = ctypes.create_unicode_buffer(256)
+            ctypes.windll.user32.GetClassNameW(hwnd, main_class_name, 256)
+            main_class_name_str = main_class_name.value.lower()
+
             # 获取窗口标题
             length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
             buff = ctypes.create_unicode_buffer(length + 1)
             ctypes.windll.user32.GetWindowTextW(hwnd, buff, length + 1)
             window_title = buff.value.lower()
 
+            # 调试信息
+            print(f"🔍 窗口标题: {window_title}")
+            print(f"🔍 主窗口类名: {main_class_name_str}")
+
+            # 明确排除的窗口类型（桌面、资源管理器等）
+            excluded_classes = [
+                'progman',              # 桌面程序管理器
+                'workerw',              # 桌面工作窗口
+                'shell_traywnd',        # 任务栏
+                'cabinetwclass',        # Windows资源管理器
+                'explorerframe',        # 资源管理器框架
+                '#32768',               # 右键菜单
+                'tooltips_class32',     # 工具提示
+                'button',               # 按钮
+            ]
+
+            # 检查主窗口是否在排除列表中
+            for excluded in excluded_classes:
+                if excluded in main_class_name_str:
+                    print(f"✗ 排除的窗口类型: {main_class_name_str}")
+                    return False
+
+            # 如果窗口标题为空或是"程序管理器"，很可能是桌面
+            if not window_title or window_title == 'program manager' or window_title == '程序管理器':
+                print(f"✗ 检测到桌面窗口")
+                return False
+
             # 获取焦点控件
             focus_hwnd = ctypes.windll.user32.GetFocus()
-            if not focus_hwnd:
-                # 有些应用焦点在主窗口，尝试主窗口
-                focus_hwnd = hwnd
 
-            # 获取窗口类名
+            # 如果没有焦点控件，检查是否是特殊的编辑器窗口
+            if not focus_hwnd:
+                # 某些现代编辑器（如VSCode）焦点可能在主窗口
+                # 只有明确是编辑器时才允许
+                editable_titles = [
+                    'visual studio code',
+                    'vscode',
+                    'notepad++',
+                    'sublime text',
+                    'atom',
+                    'pycharm',
+                    'webstorm',
+                    'intellij idea',
+                    'eclipse',
+                    'android studio',
+                    'notepad',  # 记事本
+                    'word',     # Word
+                ]
+
+                for editable_title in editable_titles:
+                    if editable_title in window_title:
+                        print(f"✓ 通过窗口标题识别为编辑器: {editable_title}")
+                        return True
+
+                print(f"✗ 无焦点控件且非编辑器")
+                return False
+
+            # 获取焦点控件的类名
             class_name = ctypes.create_unicode_buffer(256)
             ctypes.windll.user32.GetClassNameW(focus_hwnd, class_name, 256)
             class_name_str = class_name.value.lower()
 
-            # 调试信息
-            print(f"🔍 窗口标题: {window_title}")
-            print(f"🔍 控件类名: {class_name_str}")
+            print(f"🔍 焦点控件类名: {class_name_str}")
 
-            # 常见的可编辑控件类名
+            # 明确的可编辑控件类名（严格匹配）
             editable_classes = [
-                'edit',           # 标准文本框
-                'richedit',       # 富文本框
-                'richedit20',     # 富文本框2.0
-                'richedit50',     # 富文本框5.0
-                'textarea',       # 网页文本域
-                'input',          # 网页输入框
-                'consolewindowclass',  # 命令行
-                'scintilla',      # Scintilla编辑器
-                'notepad',        # 记事本
-                'wordpad',        # 写字板
-                'chrome_widgetwin',  # Chrome/Electron应用
-                'intermediate d3d window',  # 某些现代应用
+                'edit',                 # 标准文本框
+                'richedit',             # 富文本框
+                'richedit20',           # 富文本框2.0
+                'richedit50',           # 富文本框5.0
+                'consolewindowclass',   # 命令行窗口
+                'scintilla',            # Scintilla编辑器
+                'txtwndclass',          # 某些文本编辑器
             ]
 
-            # 检查是否是可编辑控件
+            # 精确匹配可编辑控件
             for editable_class in editable_classes:
-                if editable_class in class_name_str:
+                if editable_class == class_name_str or class_name_str.startswith(editable_class):
+                    print(f"✓ 检测到可编辑控件: {class_name_str}")
                     return True
 
-            # 基于窗口标题判断（适用于VSCode等编辑器）
-            editable_titles = [
-                'visual studio code',
-                'vscode',
-                'notepad++',
-                'sublime',
-                'atom',
-                'pycharm',
-                'webstorm',
-                'intellij',
-                'eclipse',
-                'android studio',
-            ]
+            # 检查是否是浏览器的输入框（需要更谨慎）
+            # Chrome/Edge等浏览器的输入框通常有特殊标识
+            if 'chrome' in class_name_str or 'chrome' in main_class_name_str:
+                # 只有当光标类型是文本光标时才认为是输入框
+                # 或者可以尝试发送测试按键来判断
+                print(f"⚠️  检测到Chrome窗口，需要进一步验证")
+                # Chrome窗口比较复杂，暂时保守处理
+                return False
 
-            for editable_title in editable_titles:
-                if editable_title in window_title:
-                    print(f"✓ 通过窗口标题识别为编辑器")
-                    return True
-
+            print(f"✗ 未识别为可编辑区域")
             return False
 
         except Exception as e:

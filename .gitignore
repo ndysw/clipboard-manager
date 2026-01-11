@@ -21,7 +21,7 @@ wheels/
 *.egg
 
 # PyInstaller
-*.spec
+# *.spec
 
 # Environments
 .env
@@ -46,3 +46,6 @@ Thumbs.db
 # Project specific
 clipboard_config.json
 *.log
+
+# Claude Code
+.claude/

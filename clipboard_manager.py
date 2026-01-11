@@ -3,6 +3,7 @@ import time
 import threading
 import json
 import os
+import sys
 from datetime import datetime
 from pynput import mouse
 from pynput.keyboard import Controller, Key
@@ -11,6 +12,14 @@ from tkinter import ttk
 import ctypes
 from pystray import Icon, Menu, MenuItem
 from PIL import Image
+
+# 设置控制台编码为UTF-8
+if sys.platform == 'win32':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except:
+        pass
 
 class ClipboardManager:
     def __init__(self, max_history=20):
@@ -256,7 +265,7 @@ class ClipboardManager:
         frame.columnconfigure(0, weight=1)
 
         title_label = ttk.Label(frame, text="选择要粘贴的内容 (单击左键选择)",
-                               font=('微软雅黑', 10, 'bold'))
+                               font=('微软雅黑', 12, 'bold'))
         title_label.grid(row=0, column=0, pady=(0, 10), sticky=tk.W)
 
         canvas = tk.Canvas(frame, height=menu_height-80)
@@ -310,14 +319,14 @@ class ClipboardManager:
         btn_frame.columnconfigure(1, weight=1)
 
         num_label = tk.Label(btn_frame, text=f"{idx+1}.",
-                            font=('微软雅黑', 9, 'bold'),
+                            font=('微软雅黑', 11, 'bold'),
                             width=3, bg='white')
-        num_label.grid(row=0, column=0, padx=(5, 5))
+        num_label.grid(row=0, column=0, padx=(8, 5))
 
         content_label = tk.Label(btn_frame, text=preview,
-                                font=('微软雅黑', 9),
+                                font=('微软雅黑', 11),
                                 wraplength=420, bg='white', anchor='w', justify='left')
-        content_label.grid(row=0, column=1, sticky=tk.W, padx=5, pady=5)
+        content_label.grid(row=0, column=1, sticky=tk.W, padx=5, pady=8)
 
         def on_select(event=None):
             # 检查是否有粘贴正在进行
@@ -334,17 +343,16 @@ class ClipboardManager:
         content_label.bind('<Button-1>', on_select)
 
         def on_enter(event):
-            # 浅蓝色背景
-            btn_frame.configure(relief='sunken', bg='#AED6F1')
-            # 黄色粗体字体
-            num_label.configure(bg='#AED6F1', foreground='#F39C12', font=('微软雅黑', 9, 'bold'))
-            content_label.configure(bg='#AED6F1', foreground='#F39C12', font=('微软雅黑', 9, 'bold'))
+            # 深蓝色背景，白色文字，高对比度
+            btn_frame.configure(relief='sunken', bg='#1E3A8A')
+            num_label.configure(bg='#1E3A8A', foreground='white', font=('微软雅黑', 11, 'bold'))
+            content_label.configure(bg='#1E3A8A', foreground='white', font=('微软雅黑', 11, 'bold'))
 
         def on_leave(event):
             # 恢复原样
             btn_frame.configure(relief='raised', bg='white')
-            num_label.configure(bg='white', foreground='black', font=('微软雅黑', 9, 'bold'))
-            content_label.configure(bg='white', foreground='black', font=('微软雅黑', 9))
+            num_label.configure(bg='white', foreground='black', font=('微软雅黑', 11, 'bold'))
+            content_label.configure(bg='white', foreground='black', font=('微软雅黑', 11))
 
         for widget in [btn_frame, num_label, content_label]:
             widget.bind('<Enter>', on_enter)
